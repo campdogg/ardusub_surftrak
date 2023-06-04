@@ -28,7 +28,11 @@ MAX_MEASUREMENT_CM = int(MAX_MEASUREMENT_M * 100)
 SENSOR_TYPE = mavutil.mavlink.MAV_DISTANCE_SENSOR_UNKNOWN
 SENSOR_ID = 1
 ORIENTATION = mavutil.mavlink.MAV_SENSOR_ROTATION_PITCH_270  # Downward-facing
-COVARIANCE = 255
+COVARIANCE = 0  # Ping + BlueOS behavior
+
+# A Ping outlier that I've seen: if the sensor reading is < 0.35m, then return ~8m
+OUTLIER_LOW_CUTOFF = 0.35
+OUTLIER_LOW_READING = 8.888
 
 # Vertical distance from base (sub body origin) to Ping sonar
 # TODO depends on what ArduSub uses as body origin -- is it baro_z? Or something else?
@@ -77,9 +81,10 @@ class SubZHistory:
 
 
 class RangefinderSimulator:
-    def __init__(self, terrain, delay):
+    def __init__(self, terrain, delay, outliers):
         self.terrain = terrain
         self.delay = delay
+        self.outliers = outliers
         self.conn = mavutil.mavlink_connection(CONN_STR)
 
         self.sub_z_history = SubZHistory()
@@ -134,21 +139,20 @@ class RangefinderSimulator:
 
                         if sub_z is None:
                             # Send an out-of-range measurement
-                            rf = MAX_MEASUREMENT_M
+                            rf = 0.0
                         else:
                             # sub_z = -7, terrain_z = -18, reading = 11
                             # Adjust for distance from sub body origin to location of Ping sonar
                             rf = sub_z - terrain_z + BASE_PING_Z
 
-                        if rf < MIN_MEASUREMENT_M:
-                            rf = MIN_MEASUREMENT_M
-                        elif rf > MAX_MEASUREMENT_M:
-                            rf = MAX_MEASUREMENT_M
+                            if rf < OUTLIER_LOW_CUTOFF and self.outliers:
+                                rf = OUTLIER_LOW_READING
+                            elif rf < MIN_MEASUREMENT_M:
+                                rf = MIN_MEASUREMENT_M
+                            elif rf > MAX_MEASUREMENT_M:
+                                rf = MAX_MEASUREMENT_M
 
                         print(f'terrain_z {terrain_z}, sub_z {sub_z}, rf {rf}')
-    
-                        # TODO add some noise
-                        # TODO get confidence from log file, pass in as signal_quality
     
                         self.conn.mav.distance_sensor_send(
                             0,              # time_boot_ms is ignored by AP_RangeFinder_MAVLink
@@ -174,10 +178,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--delay', type=float, default=0.8, help='Ping sensor delay in seconds')
     parser.add_argument('--terrain', type=str, default='terrain/zeros.csv', help='terrain file')
+    parser.add_argument('--outliers', action='store_true', help='add outliers')
     args = parser.parse_args()
-    print(f'terrain: {args.terrain}, Ping sensor delay: {args.delay}s')
+    print(f'terrain: {args.terrain}, Ping sensor delay: {args.delay}s, outliers: {args.outliers}')
     
-    simulator = RangefinderSimulator(args.terrain, args.delay)
+    simulator = RangefinderSimulator(args.terrain, args.delay, args.outliers)
     simulator.run()
     
 
