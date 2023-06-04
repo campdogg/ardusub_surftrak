@@ -58,7 +58,6 @@ class SubZHistory:
 
     def get(self, t: float) -> float or None:
         """Return the z reading at time t. Return None if there is no good z reading."""
-
         if len(self.history) == 0:
             return None
 
@@ -78,6 +77,13 @@ class SubZHistory:
 
         # We fell off the end, use the last reading
         return self.history[len(self.history) - 1][1]
+
+    def length_s(self) -> float:
+        """Return length of history in seconds"""
+        if len(self.history) < 2:
+            return 0.0
+        else:
+            return self.history[len(self.history) - 1][0] - self.history[0][0]
 
 
 class RangefinderSimulator:
@@ -118,39 +124,44 @@ class RangefinderSimulator:
                     interval = float(row[0])
     
                     for row in datareader:
-                        # Get all LOCAL_POSITION_NED messages that are sitting in the queue
+                        # Bootstrap: get enough history to send delayed readings
                         # Note: run QGroundControl to get the LOCAL_POSITION_NED messages flowing
-                        while msg := self.conn.recv_match():
-                            if msg.get_msgId() == MAVLINK_MSG_ID_LOCAL_POSITION_NED:
+                        if self.sub_z_history.length_s() <= self.delay:
+                            print('Waiting for LOCAL_POSITION_NED messages...')
+                            while msg := self.conn.recv_match(type='LOCAL_POSITION_NED', blocking=True):
                                 timestamp = getattr(msg, '_timestamp', 0.0)
 
-                                # Synchronize clocks
                                 if self.time_sync is None:
                                     self.time_sync = TimeSync(msg.time_boot_ms, timestamp)
+                                    print('Time synchronized')
 
-                                # Add the reading to the depth history
                                 self.sub_z_history.add(timestamp, -msg.z)
+
+                                if self.sub_z_history.length_s() > self.delay:
+                                    print('History ready')
+                                    break
+
+                        # Normal operation: get all LOCAL_POSITION_NED messages that are sitting in the queue
+                        while msg := self.conn.recv_match(type='LOCAL_POSITION_NED'):
+                            self.sub_z_history.add(getattr(msg, '_timestamp', 0.0), -msg.z)
 
                         # terrain_z is above/below seafloor depth
                         terrain_z = float(row[0])
 
                         # Get the sub.z reading at time t, where t = now - delay
                         sub_z = self.sub_z_history.get(time.time() - self.delay)
+                        assert sub_z is not None
 
-                        if sub_z is None:
-                            # Send an out-of-range measurement
-                            rf = 0.0
-                        else:
-                            # sub_z = -7, terrain_z = -18, reading = 11
-                            # Adjust for distance from sub body origin to location of Ping sonar
-                            rf = sub_z - terrain_z + BASE_PING_Z
+                        # sub_z = -7, terrain_z = -18, reading = 11
+                        # Adjust for distance from sub body origin to location of Ping sonar
+                        rf = sub_z - terrain_z + BASE_PING_Z
 
-                            if rf < OUTLIER_LOW_CUTOFF and self.outliers:
-                                rf = OUTLIER_LOW_READING
-                            elif rf < MIN_MEASUREMENT_M:
-                                rf = MIN_MEASUREMENT_M
-                            elif rf > MAX_MEASUREMENT_M:
-                                rf = MAX_MEASUREMENT_M
+                        if rf < OUTLIER_LOW_CUTOFF and self.outliers:
+                            rf = OUTLIER_LOW_READING
+                        elif rf < MIN_MEASUREMENT_M:
+                            rf = MIN_MEASUREMENT_M
+                        elif rf > MAX_MEASUREMENT_M:
+                            rf = MAX_MEASUREMENT_M
 
                         print(f'terrain_z {terrain_z}, sub_z {sub_z}, rf {rf}')
     
