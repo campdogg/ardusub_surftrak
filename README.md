@@ -102,9 +102,11 @@ param set RNGFND1_POS_Z -0.095
 param set SIM_SONAR_SCALE 10    # Unscale
 ~~~
 
-> TODO update for rng_hold
- 
+> TODO scale / unscale?
+
 > TODO set BTN3_
+
+> TODO set RNGFND_GAIN 0.4
 
 Quit ArduSub.
 
@@ -153,11 +155,7 @@ export LOG_DIR=~/projects/ardusub_surftrak/logs/sitl/surftrak/trapezoid
 export BIN_FILE=~/ardupilot/logs/00000068.BIN
 
 # Process the data:
-mkdir -p $LOG_DIR
-mv stamped_terrain.csv $LOG_DIR
-mavlogdump.py --types CTUN --format csv $BIN_FILE > $LOG_DIR/ctun.csv
-cd $LOG_DIR
-merge_logs.py
+process_sitl.bash
 ~~~
 
 Repeat as necessary for other terrain inputs.
@@ -214,9 +212,7 @@ export LOG_DIR=~/projects/ardusub_surftrak/logs/gazebo/surftrak
 export BIN_FILE=~/ardupilot/logs/00000068.BIN
 
 # Process the data:
-mkdir -p $LOG_DIR
-mavlogdump.py --types CTUN --format csv $BIN_FILE > $LOG_DIR/ctun.csv
-cd $LOG_DIR
+process_gz.bash
 ~~~
 
 # Results
@@ -226,12 +222,6 @@ cd $LOG_DIR
 The results are in the [logs](logs) directory:
 * SITL paths are of the form `logs/sitl/algorithm/terrain/file`
 * Gazebo paths are of the form `logs/gazebo/algorithm/file`
-
-You can generate graphs from log files:
-~~~
-cd ~/projects/ardusub_surftrak
-graph_all.py
-~~~
 
 There are 2 SITL terrain files:
 * trapezoid: 4m rise, ramp up and down
