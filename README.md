@@ -96,7 +96,7 @@ param set RNGFND1_POS_Y 0.0
 param set RNGFND1_POS_Z -0.095
 ~~~
 
-Set RNGFND_GAIN to something less than 1.0; this reduces the oscillation caused by data delays (added 4-June-2023):
+Set RNGFND_GAIN to something less than 1.0; this reduces the oscillation caused by data delays (added 4-Jun-2023):
 
 ~~~
 param set RNGFND_GAIN 0.4
@@ -252,8 +252,7 @@ It is not present in the Gazebo simulations.
 In live experiments, the readings from the Ping sonar sensor were delayed ~0.8s when the sub was ~4m off the seafloor.
 This could be due to the speed of sound in water, the sensor firmware, and delays caused by data pipeline.
 This can cause large (> 1m) oscillations as the sub attempts to hold depth using the rangefinder. The RNGFND_GAIN
-parameter can be used to attenuate the response, which minimizes the oscillations. All simulations were run with
-RNGFND_GAIN set to 0.4.
+parameter can be used to attenuate the response, which minimizes the oscillations.
 
 ### surftrak in SITL (trapezoid)
 
@@ -282,15 +281,19 @@ Variables graphed in the climb rate section:
 In the altitude section you can see the controller responding fairly quickly to the rangefinder readings.
 
 In the rangefinder section, you can see that the rangefinder readings stay in a fairly small band, indicating that
-the controller is doing a reasonable job keeping the sub at a fixed distance above the terrain. There is still some
+the controller is doing a reasonable job keeping the sub at a fixed distance above the terrain. There is still a little
 oscillation.
+
+The rangefinder reading delay is 0.8s. RNGFND_GAIN is 0.4.
 
 ### surftrak in SITL (sawtooth)
 
 The [sawtooth terrain graph](logs/sitl/surftrak/sawtooth/merged.pdf) shows a sharp jump up 4m,
 a plateau, and a fall of 4m at 0.25m/s. There are some significant changes from the trapezoid case:
 * the sub climbs quickly, but the climb rate is clipped by the controller. The max climb rate appears to be 1m/s.
-* there is significant overshoot and some oscillation, even with RNGFND_GAIN set to 0.4.
+* there is significant overshoot and some oscillation.
+
+The rangefinder reading delay is 0.8s. RNGFND_GAIN is 0.4.
 
 ### surftrak in Gazebo
 
@@ -298,6 +301,8 @@ The [surftrak Gazebo graph](logs/gazebo/surftrak/ctun.pdf) shows a very differen
 All data is from the CTUN messages. The terrain height is not shown.
 
 The controller does a pretty good job keeping the rangefinder readings in a small band.
+
+There is no rangefinder reading delay. RNGFND_GAIN is 1.0.
 
 ### auto_alt in Gazebo
 
@@ -312,7 +317,7 @@ section. More investigation is required.
 
 ### surftrak_4_1
 
-_Added 28-Mar-2023_
+_Added 28-Mar-2023, SITL results re-run 4-Jun-2023 to use RNGFND_GAIN_
 
 The original surftrak changes were made to the ardupilot `master` branch, but the current stable version of ArduSub is 
 on the `Sub-4.1` branch. To make it easier to test surftrak on real hardware I copied the changes to a new branch
@@ -320,7 +325,7 @@ on the `Sub-4.1` branch. To make it easier to test surftrak on real hardware I c
 * [surftrak_4_1 in SITL, trapezoid](logs/sitl/surftrak_4_1/trapezoid/merged.pdf)
 * [surftrak_4_1 in Gazebo](logs/gazebo/surftrak_4_1/ctun.pdf)
 
-The results are similar to the version of surftrak on master, though there is a noticeable oscillation in SITL.
+The rangefinder reading delay is 0.8s. RNGFND_GAIN is 0.2.
 
 # Pilot interface
 
