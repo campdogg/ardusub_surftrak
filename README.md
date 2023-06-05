@@ -96,12 +96,6 @@ param set RNGFND1_POS_Y 0.0
 param set RNGFND1_POS_Z -0.095
 ~~~
 
-Set RNGFND_GAIN to something less than 1.0; this reduces the oscillation caused by data delays (added 4-Jun-2023):
-
-~~~
-param set RNGFND_GAIN 0.4
-~~~
-
 Quit ArduSub.
 
 Launch SITL again, this time drop the `-w` option to avoiding wiping the EEPROM:
@@ -178,12 +172,6 @@ param set RNGFND1_POS_Y 0.0
 param set RNGFND1_POS_Z -0.095
 ~~~
 
-The Gazebo rangefinder plugin can't simulate data delays, so you'll see less oscillation.
-But you can still set RNGFND_GAIN:
-~~~
-param set RNGFND_GAIN 0.4
-~~~
-
 For auto_alt use this param:
 ~~~
 param set EK3_SRC1_POSZ 2       # EK3 position.z source is rangefinder
@@ -249,10 +237,10 @@ rangefinder reading. The position information is coming from LOCAL_POSITION_NED 
 at 4Hz so the data isn't always up to date. This is an artifact of the way we inject rangefinder data in SITL.
 It is not present in the Gazebo simulations.
 
-In live experiments, the readings from the Ping sonar sensor were delayed ~0.8s when the sub was ~4m off the seafloor.
+_Updated 5-Jun-2023:_ In live experiments, the readings from the Ping sonar sensor were delayed ~0.8s when the sub was ~4m off the seafloor.
 This could be due to the speed of sound in water, the sensor firmware, and delays caused by data pipeline.
-This can cause large (> 1m) oscillations as the sub attempts to hold depth using the rangefinder. The RNGFND_GAIN
-parameter can be used to attenuate the response, which minimizes the oscillations.
+This can cause large (> 1m) oscillations as the sub attempts to hold depth using the rangefinder. A PID controller was
+added to address this problem. 
 
 ### surftrak in SITL (trapezoid)
 
@@ -284,7 +272,12 @@ In the rangefinder section, you can see that the rangefinder readings stay in a 
 the controller is doing a reasonable job keeping the sub at a fixed distance above the terrain. There is still a little
 oscillation.
 
-The rangefinder reading delay is 0.8s. RNGFND_GAIN is 0.4.
+The rangefinder reading delay is 0.8s. RNGFND_PID* coefficients were set using ZN "classic" tuning:
+* Ku = 0.7
+* Tu = 7
+* RNGFND_PID_P = 0.42
+* RNGFND_PID_I = 0.875
+* RNGFND_PID_D = 0.3675
 
 ### surftrak in SITL (sawtooth)
 
@@ -293,7 +286,7 @@ a plateau, and a fall of 4m at 0.25m/s. There are some significant changes from 
 * the sub climbs quickly, but the climb rate is clipped by the controller. The max climb rate appears to be 1m/s.
 * there is significant overshoot and some oscillation.
 
-The rangefinder reading delay is 0.8s. RNGFND_GAIN is 0.4.
+Reading delay and RNGFND_PID* parameters are the same as the trapezoid case.
 
 ### surftrak in Gazebo
 
@@ -302,7 +295,7 @@ All data is from the CTUN messages. The terrain height is not shown.
 
 The controller does a pretty good job keeping the rangefinder readings in a small band.
 
-There is no rangefinder reading delay. RNGFND_GAIN is 1.0.
+_TODO re-run with the PID controller_
 
 ### auto_alt in Gazebo
 
@@ -326,6 +319,8 @@ on the `Sub-4.1` branch. To make it easier to test surftrak on real hardware I c
 * [surftrak_4_1 in Gazebo](logs/gazebo/surftrak_4_1/ctun.pdf)
 
 The rangefinder reading delay is 0.8s. RNGFND_GAIN is 0.2.
+
+_TODO re-run with the PID controller_
 
 # Pilot interface
 

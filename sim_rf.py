@@ -19,18 +19,29 @@ from pymavlink.dialects.v10.ardupilotmega import MAVLINK_MSG_ID_LOCAL_POSITION_N
 # 14550 is used by QGC, so we'll use 14551
 CONN_STR = 'udpin:localhost:14551'
 
-MIN_MEASUREMENT_M = 0.2
-MIN_MEASUREMENT_CM = int(MIN_MEASUREMENT_M * 100)
-
-MAX_MEASUREMENT_M = 50.0
-MAX_MEASUREMENT_CM = int(MAX_MEASUREMENT_M * 100)
-
+# Send this information in DISTANCE_SENSOR messages, note that MIN is different
+# AP_RangeFinder_MAVLink behaviors:
+#   -- max is the smallest of RNGFND1_MAX_CM and packet.max_distance_cm
+#   -- min is the largest of RNGFND1_MIN_CM and packet.min_distance_cm
+#   -- readings outside of (min, max) are marked "out of range"
+#   -- covariance is ignored
+MIN_MEASUREMENT_CM = 50
+MAX_MEASUREMENT_CM = 5000
 SENSOR_TYPE = mavutil.mavlink.MAV_DISTANCE_SENSOR_UNKNOWN
 SENSOR_ID = 1
 ORIENTATION = mavutil.mavlink.MAV_SENSOR_ROTATION_PITCH_270  # Downward-facing
-COVARIANCE = 0  # Ping + BlueOS behavior
+COVARIANCE = 0
 
-# A Ping outlier that I've seen: if the sensor reading is < 0.35m, then return ~8m
+# Actual measurement limits
+# The resulting behavior of these settings is the following:
+#   -- readings below 0.2 will be reported as 0.5m -- marked "in range" by AP_RangeFinder_MAVLink
+#   -- readings between 0.2 and 0.5 will be reported as-is -- "out of range"
+#   -- readings between 0.5 and 50.0 will be reported as-is -- "in range"
+#   -- readings >= 50m will be reported as 50m -- "in range"
+MIN_MEASUREMENT = 0.2
+MAX_MEASUREMENT = 50.0
+
+# If --outliers is set, then readings between 0.2 and 0.35 appear as 8.888
 OUTLIER_LOW_CUTOFF = 0.35
 OUTLIER_LOW_READING = 8.888
 
@@ -158,10 +169,10 @@ class RangefinderSimulator:
 
                         if rf < OUTLIER_LOW_CUTOFF and self.outliers:
                             rf = OUTLIER_LOW_READING
-                        elif rf < MIN_MEASUREMENT_M:
-                            rf = MIN_MEASUREMENT_M
-                        elif rf > MAX_MEASUREMENT_M:
-                            rf = MAX_MEASUREMENT_M
+                        elif rf < MIN_MEASUREMENT:
+                            rf = MIN_MEASUREMENT
+                        elif rf > MAX_MEASUREMENT:
+                            rf = MAX_MEASUREMENT
 
                         print(f'terrain_z {terrain_z}, sub_z {sub_z}, rf {rf}')
     
