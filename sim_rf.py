@@ -10,7 +10,6 @@ import time
 from typing import NamedTuple
 
 from pymavlink import mavutil
-from pymavlink.dialects.v10.ardupilotmega import MAVLINK_MSG_ID_LOCAL_POSITION_NED
 
 # Connect to BlueOS (not tested)
 # CONN_STR = 'udpout:localhost:9000'
@@ -159,39 +158,44 @@ class RangefinderSimulator:
                         # terrain_z is above/below seafloor depth
                         terrain_z = float(row[0])
 
-                        # Get the sub.z reading at time t, where t = now - delay
-                        sub_z = self.sub_z_history.get(time.time() - self.delay)
-                        assert sub_z is not None
+                        # terrain_z > 0 indicates that we should _not_ send a MAVLink message
+                        if terrain_z > 0.0:
+                            print(f'skipping (simulate a dropout)')
 
-                        # sub_z = -7, terrain_z = -18, reading = 11
-                        # Adjust for distance from sub body origin to location of Ping sonar
-                        rf = sub_z - terrain_z + BASE_PING_Z
+                        else:
+                            # Get the sub.z reading at time t, where t = now - delay
+                            sub_z = self.sub_z_history.get(time.time() - self.delay)
+                            assert sub_z is not None
 
-                        if rf < OUTLIER_LOW_CUTOFF and self.outliers:
-                            rf = OUTLIER_LOW_READING
-                        elif rf < MIN_MEASUREMENT:
-                            rf = MIN_MEASUREMENT
-                        elif rf > MAX_MEASUREMENT:
-                            rf = MAX_MEASUREMENT
+                            # sub_z = -7, terrain_z = -18, reading = 11
+                            # Adjust for distance from sub body origin to location of Ping sonar
+                            rf = sub_z - terrain_z + BASE_PING_Z
 
-                        print(f'terrain_z {terrain_z}, sub_z {sub_z}, rf {rf}')
-    
-                        self.conn.mav.distance_sensor_send(
-                            0,              # time_boot_ms is ignored by AP_RangeFinder_MAVLink
-                            MIN_MEASUREMENT_CM,
-                            MAX_MEASUREMENT_CM,
-                            int(rf * 100),  # Convert m -> cm
-                            SENSOR_TYPE,
-                            SENSOR_ID,
-                            ORIENTATION,
-                            COVARIANCE)
+                            if rf < OUTLIER_LOW_CUTOFF and self.outliers:
+                                rf = OUTLIER_LOW_READING
+                            elif rf < MIN_MEASUREMENT:
+                                rf = MIN_MEASUREMENT
+                            elif rf > MAX_MEASUREMENT:
+                                rf = MAX_MEASUREMENT
 
-                        # For logging purposes, record bad sub_z measurements as 0.0
-                        log_sub_z = 0.0 if sub_z is None else sub_z
+                            print(f'terrain_z {terrain_z}, sub_z {sub_z}, rf {rf}')
 
-                        # Generate TimeUS (time-since-boot in microseconds) to match the CTUN msg
-                        datawriter.writerow([self.time_boot_ms() * 1000, terrain_z, log_sub_z, rf])
-                        outfile.flush()
+                            self.conn.mav.distance_sensor_send(
+                                0,              # time_boot_ms is ignored by AP_RangeFinder_MAVLink
+                                MIN_MEASUREMENT_CM,
+                                MAX_MEASUREMENT_CM,
+                                int(rf * 100),  # Convert m -> cm
+                                SENSOR_TYPE,
+                                SENSOR_ID,
+                                ORIENTATION,
+                                COVARIANCE)
+
+                            # For logging purposes, record bad sub_z measurements as 0.0
+                            log_sub_z = 0.0 if sub_z is None else sub_z
+
+                            # Generate TimeUS (time-since-boot in microseconds) to match the CTUN msg
+                            datawriter.writerow([self.time_boot_ms() * 1000, terrain_z, log_sub_z, rf])
+                            outfile.flush()
 
                         time.sleep(interval)
 
