@@ -9,9 +9,86 @@ The [auto altitude control feature](https://discuss.bluerobotics.com/t/altimeter
 This feature works by feeding rangefinder data into the ArduPilot EKF as the z position, replacing the barometer input.
 This feature is not supported by the ArduSub team, but provides roughly the same functionality as surface tracking.
 
-In this document, surface tracking is referred to as _surftrak_ and auto altitude is referred to as _auto_alt_.
+In this document, surface tracking is referred to as _surftrak_ or _RNG_HOLD_ and auto altitude is referred to as _auto_alt_.
 
-The repository describes procedures to test surftrak and auto_alt in simulation, as well as the results of those tests.
+# RNG_HOLD Flight Mode
+
+## Behavior
+
+The RNG_HOLD (range hold) mode uses the ALT_HOLD (altitude hold) logic to hold a target depth, but it uses healthy
+rangefinder readings to adjust that target depth as the seafloor rises and falls.
+
+Normal operation:
+* The pilot flies the sub to the desired height above the seafloor and switches to RNG_HOLD mode.
+* The current depth becomes the depth target, and the current rangefinder reading becomes the rangefinder target.
+* The depth target is adjusted (using AC_PosControl offsets) to maintain the rangefinder target.
+
+Normal operation requires a healthy down-facing rangefinder. A rangefinder is healthy if:
+* The most recent reading was received within the last 500ms, and
+* The 3 most recent readings were between the min and max specified in RNGFND parameters or DISTANCE_SENSOR messages (see Sensor Notes)
+
+The pilot can switch to RNG_HOLD mode even if the rangefinder is unhealthy. In this case RNG_HOLD starts in a "reset" state:
+there is a depth target, but there is no rangefinder target. When the rangefinder becomes healthy the sub sets
+the rangefinder target and starts tracking the seafloor.
+
+There are 3 other conditions that will cause RNG_HOLD to reset:
+* The sub hits the surface (that is, the depth > SURFACE_DEPTH)
+* The sub hits the seafloor (the vertical thrusters are maxed out but the sub is not moving)
+* The pilot takes control (the throttle stick is not in the deadzone)
+
+In these cases RNG_HOLD will set a new rangefinder target when the condition is over and the rangefinder is healthy. 
+
+If the rangefinder becomes unhealthy while RNG_HOLD mode is active then RNG_HOLD stops adjusting the target depth.
+The current target depth is still maintained. When the rangefinder becomes healthy again then RNG_HOLD will resume
+tracking the seafloor. Note that the rangefinder target is _not_ reset in this case.
+
+In the example diagram below, RNG_HOLD is engaged and following the expected track until the sub reaches the surface.
+At the surface the sub stops ascending (the target depth is set 5cm below SURFACE_DEPTH), RNG_HOLD is put in the reset
+state, and the next good rangefinder reading becomes the rangefinder target. This may happen several times as the
+seafloor rises and the sub bobs a bit just below the surface. Eventually the seafloor falls away and the sub tracks
+the seafloor, but now with a lower rangefinder target.
+
+![rng_hold.png](rng_hold.png)
+
+## Pilot Interface
+
+To activate RNG_HOLD in mavproxy, enter command "mode 21".
+
+To associate RNG_HOLD with a joystick button in QGroundControl:
+* Select Vehicle Setup > Parameters
+* Select the BTNx_FUNCTION or BTNx_SFUNCTION parameter for the button you want to map to RNG_HOLD
+* In the Parameter Editor, select Advanced Settings
+* Select Manual Entry
+* Type 13 (referring to joystick function 13) in the edit box
+* Select Save
+
+You should see the following in QGroundControl:
+* RNG_HOLD appears as "Unknown" in the mode dropdown menu
+* If you enter RNG_HOLD mode when the rangefinder is unhealthy you will see (and hear) this warning message: **rangefinder is not OK, holding depth**
+* When the target rangefinder is set (or re-set) you will see this info message: **rangefinder target is X.XX m**
+
+Possible future pilot interface (requires changes to MAVLink and QGroundControl):
+* RNG_HOLD appears as "Range hold" in the mode dropdown menu.
+* The current rangefinder target is displayed in the instrument panel.
+* The current rangefinder status (healthy, unhealthy) is displayed in the instrument panel.
+* There is a joystick function to set the rangefinder target from a parameter, e.g., RNG_HOLD_TARGET1.
+This will make it easy to set an exact rangefinder target during survey missions.
+
+## Sensor Notes
+
+We have tested the Blue Robotics Ping sonar sensor connected via MAVLink.
+This uses the ArduPilot AP_RangeFinder_MAVLink backend.
+
+Notes on the AP_RangeFinder_MAVLink backend:
+* The DISTANCE_SENSOR.covariance, signal_quality, horizontal_fov and vertical_fov fields are ignored. All readings are considered good if they are between min and max.
+* The DISTANCE_SENSOR.min_distance and max_distance fields override the RNGFND1_MIN_CM and RNGFND1_MAX_CM parameters.
+* The DISTANCE_SENSOR.time_boot_ms is ignored, the current time is used instead.
+
+Notes on the Ping Sonar sensor:
+* From the logs there appears to be a 500ms to 800ms delay between ground truth and the DISTANCE_SENSOR message appearing in ArduSub.
+* The sensor is rated to read as low as 0.5m, but we've seen it do quite well down to 0.3m. Readings below 0.3m are erratic. The safest min_distance is 50cm.
+
+# Simulations
 
 We ran tests using the [ArduPilot SITL](https://ardupilot.org/dev/docs/using-sitl-for-ardupilot-testing.html)
 simulator with 2 physics models:
@@ -32,8 +109,6 @@ was floating in the air.
 The Gazebo setup provides a much richer physics model and can be used to run many more
 experiments. It works with both surftrak and auto_alt. The terrain data is generated on-the-fly by moving the sub
 through the simulated world, so each experiment is unique.
-
-# Procedure
 
 ## Install
 
@@ -73,7 +148,9 @@ the rangefinder data injector [sim_rf.py](sim_rf.py) needs LOCAL_POSITION_NED me
 * It will allow you to use a wider variety of joysticks for control.
 * It makes it easy to see the state of the sub.
 
-## Run the surftrak algorithm in SITL
+## Procedure
+
+### SITL (SIM_Submarine)
 
 Checkout the `clyde_surftrak` branch of ardupilot:
 ~~~
@@ -150,7 +227,7 @@ process_sitl.bash
 
 Repeat as necessary for other terrain inputs.
 
-## Run in Gazebo Sim
+### Gazebo Sim
 
 Run the same basic procedure as above, but with the following changes.
 
@@ -205,9 +282,22 @@ export BIN_FILE=~/ardupilot/logs/00000068.BIN
 process_gz.bash
 ~~~
 
-# Results
+## Results and Discussion
 
-## Files
+The CTUN (Control TUNing) messages are written by ArduSub at 10Hz using the latest values from the controllers.
+
+The stamped_terrain.csv data is generated by the rangefinder data injector [sim_rf.py](sim_rf.py), which is also running
+at 10Hz. However, the data injector needs to know the current position of the sub to calculate and inject an appropriate
+rangefinder reading. The position information is coming from LOCAL_POSITION_NED MAVLink messages which are only sent
+at 4Hz so the data isn't always up to date. This is an artifact of the way we inject rangefinder data in SITL.
+It is not present in the Gazebo simulations.
+
+_Updated 5-Jun-2023:_ In live experiments, the readings from the Ping sonar sensor were delayed ~0.8s when the sub was ~4m off the seafloor.
+This could be due to the speed of sound in water, the sensor firmware, and delays caused by data pipeline.
+This can cause large (> 1m) oscillations as the sub attempts to hold depth using the rangefinder. A PID controller was
+added to address this problem.
+
+### Files
 
 The results are in the [logs](logs) directory:
 * SITL paths are of the form `logs/sitl/algorithm/terrain/file`
@@ -227,21 +317,6 @@ Each Gazebo test results in 2 files:
 * ctun.csv: output of `mavlogdump.py --types CTUN --format csv 000000xx.BIN > ctun.csv`
 * ctun.pdf: output of `graph_all.py`
 
-## Discussion
-
-The CTUN (Control TUNing) messages are written by ArduSub at 10Hz using the latest values from the controllers.
-
-The stamped_terrain.csv data is generated by the rangefinder data injector [sim_rf.py](sim_rf.py), which is also running
-at 10Hz. However, the data injector needs to know the current position of the sub to calculate and inject an appropriate
-rangefinder reading. The position information is coming from LOCAL_POSITION_NED MAVLink messages which are only sent
-at 4Hz so the data isn't always up to date. This is an artifact of the way we inject rangefinder data in SITL.
-It is not present in the Gazebo simulations.
-
-_Updated 5-Jun-2023:_ In live experiments, the readings from the Ping sonar sensor were delayed ~0.8s when the sub was ~4m off the seafloor.
-This could be due to the speed of sound in water, the sensor firmware, and delays caused by data pipeline.
-This can cause large (> 1m) oscillations as the sub attempts to hold depth using the rangefinder. A PID controller was
-added to address this problem. 
-
 ### surftrak in SITL (trapezoid)
 
 The [trapezoid terrain graph](logs/sitl/surftrak/trapezoid/merged.pdf) shows a rise of 4m at a rate of 0.25m/s,
@@ -254,7 +329,7 @@ Variables graphed in the altitude section:
 * CTUN target z: the target z value the controller is trying to achieve
 * CTUN EKF z: the best estimate of the current z value from the EKF
 * CTUN barometer z: just the barometer data (the noise is simulated)
-* Injection-time z: the z value used by the data injector (sim_rf.py keeps past z values to simulate a 0.8s delay)
+* Injection-time z: the z value used by the data injector (sim_rf.py keeps past z values to simulate a delay)
 * Terrain z: the simulated terrain height
 
 Variables graphed in the rangefinder section:
@@ -303,14 +378,12 @@ The [auto_alt Gazebo graph](logs/gazebo/auto_alt/ctun.pdf) shows a radically dif
 This algorithm works by injecting the rangefinder data into the EKF, replacing the barometer data.
 The ALT_HOLD controller has not changed: it still seeks to maintain a constant altitude using the EKF z, but
 the EKF is strongly influenced by the rangefinder reading, so this mostly has the same effect of trying 
-to achieve a target rangefinder reading.
+to hit the rangefinder target.
 
 The most significant difference between the surftrak and auto_alt algorithms is the variance in the rangefinder
-section. More investigation is required.
+section.
 
 ### surftrak_4_1
-
-_Added 28-Mar-2023, SITL results re-run 4-Jun-2023 to use RNGFND_GAIN_
 
 The original surftrak changes were made to the ardupilot `master` branch, but the current stable version of ArduSub is 
 on the `Sub-4.1` branch. To make it easier to test surftrak on real hardware I copied the changes to a new branch
@@ -321,34 +394,3 @@ on the `Sub-4.1` branch. To make it easier to test surftrak on real hardware I c
 The rangefinder reading delay is 0.8s. RNGFND_GAIN is 0.2.
 
 _TODO re-run with the PID controller_
-
-# Pilot interface
-
-_Added 8-Apr-2023_
-
-The new RNG_HOLD (range hold) mode uses the ALT_HOLD (altitude hold) logic to hold a target depth, but it uses healthy
-rangefinder readings to change that target depth.
-
-Rangefinder readings are healthy if:
-* there is a down-facing rangefinder installed
-* there are 3 "good" readings in a row, where good is defined as between RNGFND1_MIN_CM and RNGFND1_MAX_CM
-* the readings did not time out (hardcoded at 500ms)
-
-There is a low-pass filter, but there is no outlier rejection.
-
-If the rangefinder becomes unhealthy then the depth target is not changed and RNG_HOLD behaves exactly like ALT_HOLD.
-If the rangefinder becomes healthy again RNG_HOLD will get a new target distance and start changing the target depth in
-response to rangefinder readings.
-
-The pilot can enter RNG_HOLD even if the seafloor is out of range; as soon as the seafloor is in range it will grab
-a target distance and start holding that distance.
-
-To activate RNG_HOLD in mavproxy, enter command `mode 21`.
-
-To associate RNG_HOLD with a joystick button in QGroundControl:
-* Select Vehicle Setup > Parameters
-* Select the `BTNx_FUNCTION` or `BTNx_SFUNCTION` parameter for the button you want to map to RNG_HOLD
-* In the Parameter Editor, select Advanced Settings
-* Select Manual Entry
-* Type `13` in the edit box
-* Select Save
