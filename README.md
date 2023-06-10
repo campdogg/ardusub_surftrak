@@ -163,6 +163,11 @@ Launch SITL. Add the `-w` option to wipe the EEPROM and load default parameters:
 sim_vehicle.py -w -L RATBeach -v ArduSub
 ~~~
 
+You can improve the simulation by changing this parameter:
+~~~
+param set SIM_BARO_RND 0.01     # Set noise for in-water barometer
+~~~
+
 Configure ArduSub to use a MAVLink rangefinder backend:
 ~~~
 param set RNGFND1_TYPE 10       # Type = MAVLink
@@ -341,25 +346,28 @@ Variables graphed in the climb rate section:
 * CTUN target climb rate: the target climb rate value that the controller is trying to achieve
 * CTUN climb rate: the climb rate that will be sent to the thrusters
 
+The rangefinder reading delay is 0.8s. RNGFND_PID* coefficients were tuned using the
+[Ziegler–Nichols "some overshoot" method](https://en.wikipedia.org/wiki/Ziegler%E2%80%93Nichols_method):
+* Ku = 0.6
+* Tu = 7.5
+* RNGFND_PID_P = 0.2
+* RNGFND_PID_I = 0.05
+* RNGFND_PID_D = 0.5
+
 In the altitude section you can see the controller responding fairly quickly to the rangefinder readings.
+There is very little overshoot.
 
-In the rangefinder section, you can see that the rangefinder readings stay in a fairly small band, indicating that
-the controller is doing a reasonable job keeping the sub at a fixed distance above the terrain. There is still a little
-oscillation.
+In the rangefinder section you can see that the rangefinder readings lag as the sub is moving up and down the ramps.
 
-The rangefinder reading delay is 0.8s. RNGFND_PID* coefficients were set using ZN "classic" tuning:
-* Ku = 0.7
-* Tu = 7
-* RNGFND_PID_P = 0.42
-* RNGFND_PID_I = 0.875
-* RNGFND_PID_D = 0.3675
+In climb rate section you can see consistent target climb rates. These will result in moderate thruster efforts.
 
 ### surftrak in SITL (sawtooth)
 
 The [sawtooth terrain graph](logs/sitl/surftrak/sawtooth/merged.pdf) shows a sharp jump up 4m,
-a plateau, and a fall of 4m at 0.25m/s. There are some significant changes from the trapezoid case:
-* the sub climbs quickly, but the climb rate is clipped by the controller. The max climb rate appears to be 1m/s.
-* there is significant overshoot and some oscillation.
+a plateau, and a fall of 4m at 0.25m/s.
+
+The sub climbs quickly (1m/s) but it still takes 4s to reach the rangefinder target.
+There is a little overshoot, but the response is quite stable.
 
 Reading delay and RNGFND_PID* parameters are the same as the trapezoid case.
 
